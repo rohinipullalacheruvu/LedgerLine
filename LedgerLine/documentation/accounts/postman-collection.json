@@ -1,0 +1,526 @@
+{
+  "info": {
+    "_postman_id": "560268d0-41f0-4c1a-8cda-83f78ce9748d",
+    "name": "LedgerLine Account Management",
+    "description": "Account-holder, admin, and auditor account APIs.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    { "key": "baseUrl", "value": "http://localhost:8080" },
+    { "key": "accessToken", "value": "" },
+    { "key": "adminToken", "value": "" },
+    { "key": "auditorToken", "value": "" },
+    { "key": "otherHolderToken", "value": "" },
+    { "key": "accountId", "value": "" },
+    { "key": "senderAccountNumber", "value": "" },
+    { "key": "receiverAccountNumber", "value": "" }
+  ],
+  "item": [
+    {
+      "name": "Create account",
+      "request": {
+        "auth": {
+          "type": "bearer",
+          "bearer": [{ "key": "token", "value": "{{accessToken}}", "type": "string" }]
+        },
+        "method": "POST",
+        "header": [{ "key": "Content-Type", "value": "application/json" }],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"name\": \"Everyday Checking\",\n  \"accountType\": \"CHECKING\",\n  \"currency\": \"USD\"\n}",
+          "options": { "raw": { "language": "json" } }
+        },
+        "url": {
+          "raw": "{{baseUrl}}/api/accounts",
+          "host": ["{{baseUrl}}"],
+          "path": ["api", "accounts"]
+        }
+      },
+      "event": [{
+        "listen": "test",
+        "script": {
+          "type": "text/javascript",
+          "exec": [
+            "pm.test('Created account', function () { pm.response.to.have.status(201); });",
+            "const body = pm.response.json();",
+            "pm.test('Account starts with a generated number and zero balance', function () {",
+            "  pm.expect(body.accountNumber).to.match(/^LL[0-9A-F]{32}$/);",
+            "  pm.expect(body.balance).to.eql(0);",
+            "  pm.expect(body.currency).to.eql('USD');",
+            "  pm.expect(body).not.to.have.property('ownerId');",
+            "});",
+            "pm.collectionVariables.set('accountId', body.id);",
+            "pm.collectionVariables.set('senderAccountNumber', body.accountNumber);"
+          ]
+        }
+      }]
+    },
+    {
+      "name": "Create transfer receiver account",
+      "request": {
+        "auth": {
+          "type": "bearer",
+          "bearer": [{ "key": "token", "value": "{{accessToken}}", "type": "string" }]
+        },
+        "method": "POST",
+        "header": [{ "key": "Content-Type", "value": "application/json" }],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"name\": \"Transfer Savings\",\n  \"accountType\": \"SAVINGS\",\n  \"currency\": \"USD\"\n}",
+          "options": { "raw": { "language": "json" } }
+        },
+        "url": {
+          "raw": "{{baseUrl}}/api/accounts",
+          "host": ["{{baseUrl}}"],
+          "path": ["api", "accounts"]
+        }
+      },
+      "event": [{
+        "listen": "test",
+        "script": {
+          "type": "text/javascript",
+          "exec": [
+            "pm.test('Receiver account is created', function () { pm.response.to.have.status(201); });",
+            "pm.collectionVariables.set('receiverAccountNumber', pm.response.json().accountNumber);"
+          ]
+        }
+      }]
+    },
+    {
+      "name": "List my accounts",
+      "request": {
+        "auth": {
+          "type": "bearer",
+          "bearer": [{ "key": "token", "value": "{{accessToken}}", "type": "string" }]
+        },
+        "method": "GET",
+        "url": {
+          "raw": "{{baseUrl}}/api/accounts",
+          "host": ["{{baseUrl}}"],
+          "path": ["api", "accounts"]
+        }
+      },
+      "event": [{
+        "listen": "test",
+        "script": {
+          "type": "text/javascript",
+          "exec": [
+            "pm.test('Returns own accounts', function () { pm.response.to.have.status(200); });",
+            "const accounts = pm.response.json();",
+            "pm.test('The created account belongs to the current user list', function () {",
+            "  pm.expect(accounts.some(account => String(account.id) === String(pm.collectionVariables.get('accountId')))).to.eql(true);",
+            "});"
+          ]
+        }
+      }]
+    },
+    {
+      "name": "Get account details",
+      "request": {
+        "auth": {
+          "type": "bearer",
+          "bearer": [{ "key": "token", "value": "{{accessToken}}", "type": "string" }]
+        },
+        "method": "GET",
+        "url": {
+          "raw": "{{baseUrl}}/api/accounts/{{accountId}}",
+          "host": ["{{baseUrl}}"],
+          "path": ["api", "accounts", "{{accountId}}"]
+        }
+      },
+      "event": [{
+        "listen": "test",
+        "script": {
+          "type": "text/javascript",
+          "exec": [
+            "pm.test('Account details are accessible to its owner', function () { pm.response.to.have.status(200); });",
+            "const body = pm.response.json();",
+            "pm.test('Response does not expose a persistence entity', function () {",
+            "  pm.expect(body).not.to.have.property('owner');",
+            "  pm.expect(body).not.to.have.property('passwordHash');",
+            "});"
+          ]
+        }
+      }]
+    },
+    {
+      "name": "Get account balance",
+      "request": {
+        "auth": {
+          "type": "bearer",
+          "bearer": [{ "key": "token", "value": "{{accessToken}}", "type": "string" }]
+        },
+        "method": "GET",
+        "url": {
+          "raw": "{{baseUrl}}/api/accounts/{{accountId}}/balance",
+          "host": ["{{baseUrl}}"],
+          "path": ["api", "accounts", "{{accountId}}", "balance"]
+        }
+      },
+      "event": [{
+        "listen": "test",
+        "script": {
+          "type": "text/javascript",
+          "exec": [
+            "pm.test('Balance is available to its owner', function () { pm.response.to.have.status(200); });",
+            "const body = pm.response.json();",
+            "pm.test('Balance uses currency and a decimal amount', function () {",
+            "  pm.expect(body.currency).to.eql('USD');",
+            "  pm.expect(body.balance).to.eql(0);",
+            "});"
+          ]
+        }
+      }]
+    },
+    {
+      "name": "Get account statement",
+      "request": {
+        "auth": {
+          "type": "bearer",
+          "bearer": [{ "key": "token", "value": "{{accessToken}}", "type": "string" }]
+        },
+        "method": "GET",
+        "url": {
+          "raw": "{{baseUrl}}/api/accounts/{{accountId}}/statement",
+          "host": ["{{baseUrl}}"],
+          "path": ["api", "accounts", "{{accountId}}", "statement"]
+        }
+      },
+      "event": [{
+        "listen": "test",
+        "script": {
+          "type": "text/javascript",
+          "exec": [
+            "pm.test('Statement is available to the account owner', function () { pm.response.to.have.status(200); });",
+            "const body = pm.response.json();",
+            "pm.test('Statement identifies the account and returns immutable posting details', function () {",
+            "  pm.expect(body.accountNumber).to.eql(pm.collectionVariables.get('senderAccountNumber'));",
+            "  pm.expect(body).to.have.property('currentBalance');",
+            "  pm.expect(body.entries).to.be.an('array');",
+            "  if (body.entries.length > 0) {",
+            "    pm.expect(body.entries[0]).to.have.property('transactionId');",
+            "    pm.expect(body.entries[0]).to.have.property('entrySide');",
+            "    pm.expect(body.entries[0]).to.have.property('runningBalance');",
+            "    pm.expect(body.entries[0]).to.have.property('initiatedByUsername');",
+            "  }",
+            "});"
+          ]
+        }
+      }]
+    },
+    {
+      "name": "Rename own account",
+      "request": {
+        "auth": {
+          "type": "bearer",
+          "bearer": [{ "key": "token", "value": "{{accessToken}}", "type": "string" }]
+        },
+        "method": "PATCH",
+        "header": [{ "key": "Content-Type", "value": "application/json" }],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"name\": \"Primary Checking\"\n}",
+          "options": { "raw": { "language": "json" } }
+        },
+        "url": {
+          "raw": "{{baseUrl}}/api/accounts/{{accountId}}",
+          "host": ["{{baseUrl}}"],
+          "path": ["api", "accounts", "{{accountId}}"]
+        }
+      },
+      "event": [{
+        "listen": "test",
+        "script": {
+          "type": "text/javascript",
+          "exec": [
+            "pm.test('Owner can rename the account', function () { pm.response.to.have.status(200); });",
+            "pm.test('Name was updated', function () { pm.expect(pm.response.json().name).to.eql('Primary Checking'); });"
+          ]
+        }
+      }]
+    },
+    {
+      "name": "Deposit",
+      "request": {
+        "auth": {
+          "type": "bearer",
+          "bearer": [{ "key": "token", "value": "{{accessToken}}", "type": "string" }]
+        },
+        "method": "POST",
+        "header": [
+          { "key": "Content-Type", "value": "application/json" },
+          { "key": "Idempotency-Key", "value": "{{$guid}}" }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"amount\": 25.50,\n  \"description\": \"Initial funding\"\n}",
+          "options": { "raw": { "language": "json" } }
+        },
+        "url": {
+          "raw": "{{baseUrl}}/api/accounts/{{accountId}}/deposits",
+          "host": ["{{baseUrl}}"],
+          "path": ["api", "accounts", "{{accountId}}", "deposits"]
+        }
+      },
+      "event": [{
+        "listen": "test",
+        "script": {
+          "type": "text/javascript",
+          "exec": [
+            "pm.test('Deposit is posted', function () { pm.response.to.have.status(201); });",
+            "const body = pm.response.json();",
+            "pm.test('Deposit returns a posted transaction', function () {",
+            "  pm.expect(body.transactionType).to.eql('DEPOSIT');",
+            "  pm.expect(body.status).to.eql('POSTED');",
+            "  pm.expect(body.accountId).to.eql(Number(pm.collectionVariables.get('accountId')));",
+            "});"
+          ]
+        }
+      }]
+    },
+    {
+      "name": "Withdraw",
+      "request": {
+        "auth": {
+          "type": "bearer",
+          "bearer": [{ "key": "token", "value": "{{accessToken}}", "type": "string" }]
+        },
+        "method": "POST",
+        "header": [
+          { "key": "Content-Type", "value": "application/json" },
+          { "key": "Idempotency-Key", "value": "{{$guid}}" }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"amount\": 5.25,\n  \"description\": \"Cash withdrawal\"\n}",
+          "options": { "raw": { "language": "json" } }
+        },
+        "url": {
+          "raw": "{{baseUrl}}/api/accounts/{{accountId}}/withdrawals",
+          "host": ["{{baseUrl}}"],
+          "path": ["api", "accounts", "{{accountId}}", "withdrawals"]
+        }
+      },
+      "event": [{
+        "listen": "test",
+        "script": {
+          "type": "text/javascript",
+          "exec": [
+            "pm.test('Withdrawal is posted', function () { pm.response.to.have.status(201); });",
+            "const body = pm.response.json();",
+            "pm.test('Withdrawal returns a posted transaction', function () {",
+            "  pm.expect(body.transactionType).to.eql('WITHDRAWAL');",
+            "  pm.expect(body.status).to.eql('POSTED');",
+            "});"
+          ]
+        }
+      }]
+    },
+    {
+      "name": "Insufficient withdrawal is refused",
+      "request": {
+        "auth": {
+          "type": "bearer",
+          "bearer": [{ "key": "token", "value": "{{accessToken}}", "type": "string" }]
+        },
+        "method": "POST",
+        "header": [
+          { "key": "Content-Type", "value": "application/json" },
+          { "key": "Idempotency-Key", "value": "{{$guid}}" }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"amount\": 999999999.00,\n  \"description\": \"Expected refusal test\"\n}",
+          "options": { "raw": { "language": "json" } }
+        },
+        "url": {
+          "raw": "{{baseUrl}}/api/accounts/{{accountId}}/withdrawals",
+          "host": ["{{baseUrl}}"],
+          "path": ["api", "accounts", "{{accountId}}", "withdrawals"]
+        }
+      },
+      "event": [{
+        "listen": "test",
+        "script": {
+          "type": "text/javascript",
+          "exec": [
+            "pm.test('Insufficient funds return conflict', function () { pm.response.to.have.status(409); });",
+            "pm.test('Refusal has a meaningful message', function () { pm.expect(pm.response.json().message).to.include('Insufficient balance'); });"
+          ]
+        }
+      }]
+    },
+    {
+      "name": "Transfer between own accounts",
+      "request": {
+        "auth": {
+          "type": "bearer",
+          "bearer": [{ "key": "token", "value": "{{accessToken}}", "type": "string" }]
+        },
+        "method": "POST",
+        "header": [
+          { "key": "Content-Type", "value": "application/json" },
+          { "key": "Idempotency-Key", "value": "{{$guid}}" }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"senderAccountNumber\": \"{{senderAccountNumber}}\",\n  \"receiverAccountNumber\": \"{{receiverAccountNumber}}\",\n  \"amount\": 2.25,\n  \"description\": \"Savings transfer\"\n}",
+          "options": { "raw": { "language": "json" } }
+        },
+        "url": {
+          "raw": "{{baseUrl}}/api/transfers",
+          "host": ["{{baseUrl}}"],
+          "path": ["api", "transfers"]
+        }
+      },
+      "event": [{
+        "listen": "test",
+        "script": {
+          "type": "text/javascript",
+          "exec": [
+            "pm.test('Transfer is posted', function () { pm.response.to.have.status(201); });",
+            "const body = pm.response.json();",
+            "pm.test('Transfer response contains a reference and both accounts', function () {",
+            "  pm.expect(body.transactionReference).to.match(/^LLTX-[0-9]+$/);",
+            "  pm.expect(body.senderAccountNumber).to.eql(pm.collectionVariables.get('senderAccountNumber'));",
+            "  pm.expect(body.receiverAccountNumber).to.eql(pm.collectionVariables.get('receiverAccountNumber'));",
+            "  pm.expect(body.status).to.eql('POSTED');",
+            "});"
+          ]
+        }
+      }]
+    },
+    {
+      "name": "Admin - list all accounts",
+      "request": {
+        "auth": {
+          "type": "bearer",
+          "bearer": [{ "key": "token", "value": "{{adminToken}}", "type": "string" }]
+        },
+        "method": "GET",
+        "url": {
+          "raw": "{{baseUrl}}/api/admin/accounts",
+          "host": ["{{baseUrl}}"],
+          "path": ["api", "admin", "accounts"]
+        }
+      },
+      "event": [{
+        "listen": "test",
+        "script": {
+          "type": "text/javascript",
+          "exec": [
+            "pm.test('Admin can list all accounts', function () { pm.response.to.have.status(200); });",
+            "pm.test('Admin summary includes owner metadata', function () {",
+            "  const accounts = pm.response.json();",
+            "  if (accounts.length > 0) { pm.expect(accounts[0]).to.have.property('ownerUsername'); }",
+            "});"
+          ]
+        }
+      }]
+    },
+    {
+      "name": "Admin - get account details",
+      "request": {
+        "auth": {
+          "type": "bearer",
+          "bearer": [{ "key": "token", "value": "{{adminToken}}", "type": "string" }]
+        },
+        "method": "GET",
+        "url": {
+          "raw": "{{baseUrl}}/api/admin/accounts/{{accountId}}",
+          "host": ["{{baseUrl}}"],
+          "path": ["api", "admin", "accounts", "{{accountId}}"]
+        }
+      },
+      "event": [{
+        "listen": "test",
+        "script": {
+          "type": "text/javascript",
+          "exec": [
+            "pm.test('Admin can read account owner metadata', function () { pm.response.to.have.status(200); });",
+            "pm.test('Owner metadata is present', function () { pm.expect(pm.response.json()).to.have.property('ownerUsername'); });"
+          ]
+        }
+      }]
+    },
+    {
+      "name": "Admin - freeze account",
+      "request": {
+        "auth": {
+          "type": "bearer",
+          "bearer": [{ "key": "token", "value": "{{adminToken}}", "type": "string" }]
+        },
+        "method": "PATCH",
+        "header": [{ "key": "Content-Type", "value": "application/json" }],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"status\": \"FROZEN\"\n}",
+          "options": { "raw": { "language": "json" } }
+        },
+        "url": {
+          "raw": "{{baseUrl}}/api/admin/accounts/{{accountId}}",
+          "host": ["{{baseUrl}}"],
+          "path": ["api", "admin", "accounts", "{{accountId}}"]
+        }
+      },
+      "event": [{
+        "listen": "test",
+        "script": {
+          "type": "text/javascript",
+          "exec": [
+            "pm.test('Admin can update account status', function () { pm.response.to.have.status(200); });",
+            "pm.test('Account status is frozen', function () { pm.expect(pm.response.json().status).to.eql('FROZEN'); });"
+          ]
+        }
+      }]
+    },
+    {
+      "name": "Auditor - list all accounts",
+      "request": {
+        "auth": {
+          "type": "bearer",
+          "bearer": [{ "key": "token", "value": "{{auditorToken}}", "type": "string" }]
+        },
+        "method": "GET",
+        "url": {
+          "raw": "{{baseUrl}}/api/auditor/accounts",
+          "host": ["{{baseUrl}}"],
+          "path": ["api", "auditor", "accounts"]
+        }
+      },
+      "event": [{
+        "listen": "test",
+        "script": {
+          "type": "text/javascript",
+          "exec": [
+            "pm.test('Auditor can view accounts', function () { pm.response.to.have.status(200); });"
+          ]
+        }
+      }]
+    },
+    {
+      "name": "Security - another holder cannot read this account",
+      "request": {
+        "auth": {
+          "type": "bearer",
+          "bearer": [{ "key": "token", "value": "{{otherHolderToken}}", "type": "string" }]
+        },
+        "method": "GET",
+        "url": {
+          "raw": "{{baseUrl}}/api/accounts/{{accountId}}",
+          "host": ["{{baseUrl}}"],
+          "path": ["api", "accounts", "{{accountId}}"]
+        }
+      },
+      "event": [{
+        "listen": "test",
+        "script": {
+          "type": "text/javascript",
+          "exec": [
+            "pm.test('Other account holder is denied', function () { pm.response.to.have.status(403); });"
+          ]
+        }
+      }]
+    }
+  ]
+}
