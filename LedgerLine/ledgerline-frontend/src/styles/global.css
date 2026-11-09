@@ -145,6 +145,10 @@ input, select, textarea { color: #1d2c43; }
 .inline-alert { display: flex; align-items: center; justify-content: space-between; gap: 15px; padding: 11px 13px; margin: 0 0 14px; color: #805c2e; background: #fff8ec; border: 1px solid #f2e3c9; border-radius: 7px; font-size: 10px; line-height: 1.5; }
 .error-alert { color: #9b4545; background: #fff4f3; border-color: #f1d8d6; }
 .error-alert button { color: inherit; background: transparent; border: 0; font-weight: 700; }
+.admin-summary-grid { grid-template-columns: repeat(5, minmax(0, 1fr)); }
+.integrity-status { display: inline-flex; align-items: center; padding: 5px 8px; color: #68778b; background: #f1f3f6; border-radius: 12px; font-size: 9px; font-weight: 700; white-space: nowrap; }
+.integrity-ok { color: #347656; background: #eaf5ee; }
+.integrity-issue { color: #9b4545; background: #fff0ef; }
 
 .form-panel { padding: 20px; }
 .compact-form { margin-bottom: 16px; }
@@ -241,6 +245,7 @@ input, select, textarea { color: #1d2c43; }
   .sidebar { width: 218px; }
   .main-content { margin-left: 218px; padding: 0 27px; }
   .summary-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .admin-summary-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .filter-form { grid-template-columns: repeat(2, minmax(140px, 1fr)); }
 }
 @media (max-width: 760px) {

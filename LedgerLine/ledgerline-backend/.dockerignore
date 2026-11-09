@@ -1,0 +1,6 @@
+node_modules
+target
+test
+.env
+.demo-credentials.json
+npm-debug.log*

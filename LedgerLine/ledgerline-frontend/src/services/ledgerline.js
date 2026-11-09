@@ -10,6 +10,15 @@ export function getPortfolioBalanceSummary() {
   return api.get("/api/accounts/summary").then(({ data }) => data);
 }
 
+export function getAdminOverview() {
+  return api.get("/api/admin/overview").then(({ data }) => data);
+}
+
+export function getAuditRecords(role) {
+  const path = role === "ADMIN" ? "/api/admin/audit-logs" : "/api/auditor/audit-logs";
+  return api.get(path).then(({ data }) => data);
+}
+
 export function getAccount(accountId, role) {
   const path = role === "ADMIN"
     ? `/api/admin/accounts/${accountId}`

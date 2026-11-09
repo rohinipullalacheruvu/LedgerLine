@@ -4,6 +4,8 @@ import { api, getApiError } from "../services/api";
 import {
   createAccount,
   getAccount,
+  getAdminOverview,
+  getAuditRecords,
   getPortfolioBalanceSummary,
   getStatement,
   listAccounts,
@@ -241,11 +243,319 @@ export function DashboardPage() {
 }
 
 export function AdminDashboardPage() {
-  return <PortfolioDashboard role="ADMIN" title="Administration" description="Review account status and system activity." adminControls />;
+  return <GovernanceDashboard role="ADMIN" />;
 }
 
 export function AuditorDashboardPage() {
-  return <PortfolioDashboard role="AUDITOR" title="Audit overview" description="Read-only view of account balances and posted ledger activity." />;
+  return <GovernanceDashboard role="AUDITOR" />;
+}
+
+function amountUnits(amount) {
+  const value = Number(amount);
+  return Number.isFinite(value) ? Math.round(value * 10000) : 0;
+}
+
+function verifyStatements(statements) {
+  return statements.map((statement) => {
+    const entries = statement.entries || [];
+    const statementBalance = entries.length
+      ? entries[entries.length - 1].runningBalance
+      : 0;
+    return {
+      ...statement,
+      verified: amountUnits(statementBalance) === amountUnits(statement.currentBalance),
+      statementBalance,
+    };
+  });
+}
+
+function checkLedgerPostings(entries) {
+  const postings = new Map();
+  entries.forEach((entry) => {
+    const posting = postings.get(entry.transactionId) || { debit: 0, credit: 0 };
+    if (entry.entrySide === "DEBIT") posting.debit += amountUnits(entry.amount);
+    if (entry.entrySide === "CREDIT") posting.credit += amountUnits(entry.amount);
+    postings.set(entry.transactionId, posting);
+  });
+  const results = [...postings.values()];
+  return {
+    total: results.length,
+    balanced: results.filter((posting) =>
+      posting.debit > 0 && posting.debit === posting.credit,
+    ).length,
+  };
+}
+
+function GovernanceDashboard({ role }) {
+  const isAdmin = role === "ADMIN";
+  const { accounts, setAccounts, loading, error, reload } = useAccounts();
+  const notify = useToast();
+  const [overview, setOverview] = useState(null);
+  const [overviewError, setOverviewError] = useState("");
+  const [balanceSummary, setBalanceSummary] = useState([]);
+  const [summaryError, setSummaryError] = useState("");
+  const [auditRecords, setAuditRecords] = useState([]);
+  const [auditError, setAuditError] = useState("");
+  const [statements, setStatements] = useState([]);
+  const [statementErrors, setStatementErrors] = useState(0);
+  const [statementsLoading, setStatementsLoading] = useState(false);
+  const [updatingAccount, setUpdatingAccount] = useState(null);
+
+  useEffect(() => {
+    let active = true;
+    if (isAdmin) {
+      getAdminOverview().then((data) => {
+        if (active) setOverview(data);
+      }).catch((requestError) => {
+        if (active) setOverviewError(getApiError(requestError));
+      });
+    }
+    getPortfolioBalanceSummary().then((data) => {
+      if (active) setBalanceSummary(data);
+    }).catch((requestError) => {
+      if (active) setSummaryError(getApiError(requestError));
+    });
+    getAuditRecords(role).then((data) => {
+      if (active) setAuditRecords(data);
+    }).catch((requestError) => {
+      if (active) setAuditError(getApiError(requestError));
+    });
+    return () => { active = false; };
+  }, [isAdmin, role]);
+
+  useEffect(() => {
+    let active = true;
+    if (!accounts.length) {
+      setStatements([]);
+      setStatementErrors(0);
+      setStatementsLoading(false);
+      return () => { active = false; };
+    }
+    setStatementsLoading(true);
+    loadStatements(accounts).then((result) => {
+      if (!active) return;
+      setStatements(result.statements);
+      setStatementErrors(result.errors.length);
+    }).finally(() => {
+      if (active) setStatementsLoading(false);
+    });
+    return () => { active = false; };
+  }, [accounts]);
+
+  const entries = useMemo(() => flattenStatements(statements), [statements]);
+  const verifiedStatements = useMemo(() => verifyStatements(statements), [statements]);
+  const ledgerCheck = useMemo(() => checkLedgerPostings(entries), [entries]);
+  const reviewFlags = auditRecords.filter((record) => record.action.endsWith("_REFUSED"));
+
+  async function changeStatus(account, status) {
+    if (!status || status === account.status) return;
+    const confirmed = window.confirm(
+      `Change account ${account.accountNumber} from ${account.status} to ${status}?`,
+    );
+    if (!confirmed) return;
+    setUpdatingAccount(account.id);
+    try {
+      const updated = await updateAdminAccount(account.id, { status });
+      setAccounts((current) => current.map((item) => item.id === account.id ? updated : item));
+      notify(`Account ${account.accountNumber} updated.`);
+    } catch (requestError) {
+      notify(getApiError(requestError), "error");
+    } finally {
+      setUpdatingAccount(null);
+    }
+  }
+
+  if (loading) return <LoadingState label="Loading oversight data…" />;
+  if (error) return <ErrorState message={error} onRetry={reload} />;
+
+  const accountActions = isAdmin
+    ? (account) => account.accountType === "EXTERNAL_CLEARING"
+      ? <span className="table-subtext">System account</span>
+      : (
+        <select
+          className="table-select"
+          aria-label={`Change status for ${account.accountNumber}`}
+          disabled={updatingAccount === account.id}
+          value={account.status}
+          onChange={(event) => changeStatus(account, event.target.value)}
+        >
+          {["ACTIVE", "FROZEN", "CLOSED"].map((status) => <option key={status}>{status}</option>)}
+        </select>
+      )
+    : null;
+
+  return (
+    <>
+      <PageHeader
+        eyebrow={isAdmin ? "ADMINISTRATION" : "READ-ONLY ACCESS"}
+        title={isAdmin ? "Administration" : "Audit overview"}
+        description={isAdmin
+          ? "Review users, accounts, transaction activity, and system audit signals."
+          : "Inspect account statements and verify ledger postings. All auditor access is read-only."}
+      />
+      {overviewError && <div className="inline-alert" role="alert">Admin metrics unavailable: {overviewError}</div>}
+      {summaryError && <div className="inline-alert" role="alert">Movement summaries unavailable: {summaryError}</div>}
+      {auditError && <div className="inline-alert" role="alert">Audit records unavailable: {auditError}</div>}
+      {statementErrors > 0 && (
+        <div className="inline-alert" role="status">
+          {statementErrors} account statement{statementErrors === 1 ? "" : "s"} could not be verified. No integrity conclusion is shown for those accounts.
+        </div>
+      )}
+      <section className={`summary-grid${isAdmin ? " admin-summary-grid" : ""}`} aria-label={isAdmin ? "Administration summary" : "Audit summary"}>
+        {isAdmin ? (
+          <>
+            <SummaryCard label="Registered users" value={overview?.totalRegisteredUsers ?? "—"} note="All LedgerLine roles" icon="◎" tone="blue" />
+            <SummaryCard label="Total accounts" value={overview?.totalAccounts ?? accounts.length} note="Includes system clearing accounts" icon="▤" tone="mint" />
+            <SummaryCard label="Transactions" value={overview?.totalTransactions ?? "—"} note={`${overview?.postedTransactions ?? "—"} posted to the ledger`} icon="↗" tone="navy" />
+            <SummaryCard
+              label="Deposits this month"
+              value={balanceSummary.some((item) => item.monthlyDepositCount > 0)
+                ? balanceSummary.filter((item) => item.monthlyDepositCount > 0).map((item) => formatCurrencyTotal(Number(item.monthlyDeposits), item.currency)).join(" · ")
+                : "—"}
+              note={`${balanceSummary.reduce((total, item) => total + item.monthlyDepositCount, 0)} posted deposits`}
+              icon="↙"
+              tone="blue"
+            />
+            <SummaryCard
+              label="Withdrawals this month"
+              value={balanceSummary.some((item) => item.monthlyWithdrawalCount > 0)
+                ? balanceSummary.filter((item) => item.monthlyWithdrawalCount > 0).map((item) => formatCurrencyTotal(Number(item.monthlyWithdrawals), item.currency)).join(" · ")
+                : "—"}
+              note={`${balanceSummary.reduce((total, item) => total + item.monthlyWithdrawalCount, 0)} posted withdrawals`}
+              icon="↗"
+              tone="peach"
+            />
+          </>
+        ) : (
+          <>
+            <SummaryCard label="Accounts reviewed" value={accounts.length} note="Visible account and system ledger accounts" icon="▤" tone="blue" />
+            <SummaryCard label="Transactions reviewed" value={new Set(entries.map((entry) => entry.transactionId)).size} note="Transactions represented in account statements" icon="↗" tone="mint" />
+            <SummaryCard label="Balanced postings" value={statementsLoading ? "…" : `${ledgerCheck.balanced} / ${ledgerCheck.total}`} note={statementErrors ? "Partial check; some statements did not load" : "Debit and credit totals match per transaction"} icon="✓" tone="navy" />
+            <SummaryCard label="Statements verified" value={statementsLoading ? "…" : `${verifiedStatements.filter((statement) => statement.verified).length} / ${verifiedStatements.length}`} note="Latest running balance matches account balance" icon="▧" tone="peach" />
+          </>
+        )}
+      </section>
+      {isAdmin && (
+        <section className="panel section-panel">
+          <div className="panel-heading">
+            <div><h2>Account management</h2><p>Status changes require administrator access and confirmation. Posted balances and ledger entries cannot be edited or deleted.</p></div>
+          </div>
+          <AccountTable accounts={accounts} role={role} actions={accountActions} />
+        </section>
+      )}
+      {!isAdmin && (
+        <section className="panel section-panel">
+          <div className="panel-heading">
+            <div><h2>Statement verification</h2><p>Compare the statement’s final running balance with the current account balance.</p></div>
+            <Link className="text-button" to="/statements">All statements <span>→</span></Link>
+          </div>
+          {statementsLoading
+            ? <LoadingState label="Verifying account statements…" />
+            : (
+              <div className="table-scroll">
+                <table className="data-table">
+                  <thead><tr><th>Account</th><th>Statement balance</th><th>Current balance</th><th>Verification</th><th /></tr></thead>
+                  <tbody>
+                    {verifiedStatements.map((statement) => (
+                      <tr key={statement.accountId}>
+                        <td><span className="table-strong">{statement.accountName}</span><small className="table-subtext">{statement.accountNumber}</small></td>
+                        <td className="amount-cell"><CurrencyAmount amount={statement.statementBalance} currency={statement.currency} /></td>
+                        <td className="amount-cell"><CurrencyAmount amount={statement.currentBalance} currency={statement.currency} /></td>
+                        <td><span className={`integrity-status ${statement.verified ? "integrity-ok" : "integrity-issue"}`}>{statement.verified ? "Verified" : "Mismatch"}</span></td>
+                        <td><Link className="text-button" to={`/statements?accountId=${statement.accountId}`}>Open statement <span>→</span></Link></td>
+                      </tr>
+                    ))}
+                    {!verifiedStatements.length && <tr><td colSpan="5">No statements available to verify.</td></tr>}
+                  </tbody>
+                </table>
+              </div>
+            )}
+        </section>
+      )}
+      <section className="panel section-panel">
+        <div className="panel-heading">
+          <div><h2>{isAdmin ? "Recent transaction activity" : "Debit and credit ledger entries"}</h2><p>Read-only postings loaded from the account statement API.</p></div>
+          <Link className="text-button" to="/transactions">Transaction history <span>→</span></Link>
+        </div>
+        {statementsLoading
+          ? <LoadingState label="Loading ledger entries…" />
+          : <ActivityTable entries={entries.slice(0, isAdmin ? 10 : 30)} showAccount />}
+      </section>
+      {!isAdmin && (
+        <section className="panel section-panel">
+          <div className="panel-heading">
+            <div><h2>Ledger posting check</h2><p>Each transaction must have equal, non-zero debit and credit totals.</p></div>
+            <span className={`integrity-status ${statementErrors ? "" : ledgerCheck.total > 0 && ledgerCheck.balanced === ledgerCheck.total ? "integrity-ok" : ledgerCheck.total === 0 ? "" : "integrity-issue"}`}>
+              {statementErrors
+                ? `Partial check · ${ledgerCheck.balanced} / ${ledgerCheck.total} balanced`
+                : ledgerCheck.total > 0 && ledgerCheck.balanced === ledgerCheck.total
+                  ? "All balanced"
+                  : `${ledgerCheck.total - ledgerCheck.balanced} need review`}
+            </span>
+          </div>
+          {statementErrors > 0
+            ? <p className="table-subtext">The check is partial because some account statements could not be loaded.</p>
+            : <p className="table-subtext">{ledgerCheck.balanced} of {ledgerCheck.total} transactions have balanced postings.</p>}
+        </section>
+      )}
+      <section className="panel section-panel">
+        <div className="panel-heading">
+          <div><h2>Audit records</h2><p>Most recent 100 records returned by the authorized audit API.</p></div>
+        </div>
+        {auditError
+          ? <div className="table-subtext">Audit records could not be loaded.</div>
+          : auditRecords.length
+            ? (
+              <div className="table-scroll">
+                <table className="data-table">
+                  <thead><tr><th>Action</th><th>Entity</th><th>Actor</th><th>Details</th><th>Date</th></tr></thead>
+                  <tbody>
+                    {auditRecords.map((record) => (
+                      <tr key={record.id}>
+                        <td><span className="table-strong">{record.action}</span></td>
+                        <td>{record.entityType}{record.entityId ? ` #${record.entityId}` : ""}</td>
+                        <td>{record.actorUsername || "System"}</td>
+                        <td>{Object.entries(record.details || {}).map(([key, value]) => `${key}: ${value}`).join(" · ") || "—"}</td>
+                        <td>{formatDate(record.createdAt)}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )
+            : <EmptyState title="No audit records">Recorded audit events will appear here.</EmptyState>}
+      </section>
+      {isAdmin && (
+        <section className="panel section-panel">
+          <div className="panel-heading">
+            <div><h2>Suspicious activity flags</h2><p>Refused money-operation attempts are flagged for human review; they are not confirmed fraud findings.</p></div>
+            <span className={`integrity-status ${reviewFlags.length ? "integrity-issue" : "integrity-ok"}`}>{reviewFlags.length} review flags</span>
+          </div>
+          {reviewFlags.length
+            ? (
+              <div className="table-scroll">
+                <table className="data-table">
+                  <thead><tr><th>Attempt</th><th>Account</th><th>Actor</th><th>Amount</th><th>Reason</th><th>Date</th></tr></thead>
+                  <tbody>
+                    {reviewFlags.map((record) => (
+                      <tr key={record.id}>
+                        <td>{record.action.replace("_REFUSED", "")}</td>
+                        <td>{record.entityId ? `#${record.entityId}` : "—"}</td>
+                        <td>{record.actorUsername || "Unknown"}</td>
+                        <td>{record.details?.amount ? `${record.details.amount} ${record.details.currency || ""}` : "—"}</td>
+                        <td>{record.details?.reason || "Review required"}</td>
+                        <td>{formatDate(record.createdAt)}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )
+            : <EmptyState title="No refused attempts flagged">No refused money-operation attempts were found in the recent audit records.</EmptyState>}
+        </section>
+      )}
+    </>
+  );
 }
 
 function CreateAccountForm({ onCreated, onCancel }) {

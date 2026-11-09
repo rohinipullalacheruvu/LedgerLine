@@ -1,0 +1,70 @@
+services:
+  mongo:
+    image: mongo:8.0
+    command: ["mongod", "--replSet", "rs0", "--bind_ip_all"]
+    volumes:
+      - mongo-data:/data/db
+    healthcheck:
+      test: ["CMD", "mongosh", "--quiet", "mongodb://localhost:27017/admin", "--eval", "db.adminCommand('ping').ok"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+    restart: unless-stopped
+
+  mongo-rs-init:
+    image: mongo:8.0
+    depends_on:
+      mongo:
+        condition: service_healthy
+    entrypoint: ["mongosh"]
+    command:
+      - --host
+      - mongo:27017
+      - --quiet
+      - --eval
+      - "try { rs.status(); print('Replica set already initialized'); } catch (error) { rs.initiate({_id: 'rs0', members: [{_id: 0, host: 'mongo:27017'}]}); }"
+    restart: "no"
+
+  backend:
+    build:
+      context: ./ledgerline-backend
+    environment:
+      NODE_ENV: production
+      PORT: 8080
+      MONGO_URI: mongodb://mongo:27017/ledgerline?replicaSet=rs0
+      JWT_SECRET: ${JWT_SECRET:?Copy .env.example to .env and set JWT_SECRET}
+      JWT_EXPIRATION: 15m
+      CLEARING_ACCOUNT_NUMBER: LL-CLEARING-USD
+      CLEARING_CURRENCY: USD
+      FRONTEND_ORIGIN: ${FRONTEND_ORIGIN:-http://localhost:5173}
+      DEMO_CREDENTIALS_PATH: /demo/.demo-credentials.json
+    depends_on:
+      mongo-rs-init:
+        condition: service_completed_successfully
+    volumes:
+      - demo-credentials:/demo
+    ports:
+      - "127.0.0.1:8080:8080"
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:8080/health').then((r) => process.exit(r.ok ? 0 : 1)).catch(() => process.exit(1))"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 15s
+    restart: unless-stopped
+
+  frontend:
+    build:
+      context: ./ledgerline-frontend
+      args:
+        VITE_API_BASE_URL: ""
+    depends_on:
+      backend:
+        condition: service_healthy
+    ports:
+      - "127.0.0.1:5173:80"
+    restart: unless-stopped
+
+volumes:
+  mongo-data:
+  demo-credentials:

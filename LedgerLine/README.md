@@ -1,123 +1,171 @@
 # LedgerLine
 
-**Money Movement with a Ledger You Can Prove**
+LedgerLine is a full-stack banking ledger demonstration built around traceable, balanced financial postings. Account holders manage accounts and move funds; administrators oversee operations; auditors inspect statements and ledger integrity without write access.
 
-LedgerLine is a full-stack financial transaction management application in development. Its goal is to make money movement understandable and auditable through a clear transaction history.
+## Problem statement
 
-> The backend currently supports JWT authentication, account management, deposits, withdrawals, internal transfers, idempotent money-moving APIs, and read-only account ledger statements. The React frontend currently provides a responsive preview shell; account data and actions are not connected yet.
+Financial interfaces often make it difficult to trace how a balance changed or to distinguish a committed operation from a retried request. Concurrent requests can also race against the same balance. LedgerLine addresses these problems with transaction-linked debit/credit entries, atomic balance updates, retry-safe idempotency, and role-aware audit views.
 
-## Planned technology
+## Objectives
 
-- **Frontend:** React, HTML, CSS, and JavaScript
-- **Backend:** Java, Spring Boot, and Maven
-- **Database and persistence:** MySQL, Spring Data JPA, and Hibernate
-- **Security:** Spring Security and JWT
-- **Testing:** JUnit 5 and Mockito
+- Keep account balances consistent with posted transaction and ledger records.
+- Preserve money across internal transfers and prevent concurrent overdrafts.
+- Make retried money requests safe using user-scoped idempotency keys.
+- Restrict account and administrative access by role and server-side authorization.
+- Give auditors read-only statements and debit/credit integrity checks.
+- Provide repeatable replica-set-backed integration tests and a local evaluation setup.
 
-## Project layout
+## Features
+
+- JWT authentication; public registration creates account holders only.
+- Account creation, account summaries, status management, and account statements.
+- Idempotent deposits, withdrawals, and internal transfers.
+- Atomic MongoDB transaction writes for balances, transactions, ledger entries, and idempotency outcomes.
+- Decimal.js arithmetic and MongoDB Decimal128 persistence with four fractional digits.
+- Admin overview, account management, audit records, and refused-operation review flags.
+- Read-only auditor account/history access and balanced-ledger verification.
+- Ledger-entry mutation routes are absent; schema hooks reject Mongoose update/delete operations.
+- Parallel-request tests use a real ephemeral MongoDB replica set.
+
+## Technology stack
+
+| Layer | Technology |
+|---|---|
+| Frontend | React 19, Vite, JavaScript, Axios, React Router |
+| API | Node.js 20+, Express 5, Mongoose 8 |
+| Database | MongoDB replica set; Decimal128 for persisted monetary values |
+| Auth | bcryptjs and JWT bearer tokens |
+| Tests | Node.js test runner, Supertest, MongoDB Memory Server replica set |
+| Local deployment | Docker Compose, Nginx |
+
+MongoDB is the backend database. The legacy MySQL schema files, if present under `documentation/database/`, are historical reference only and are not used by the Express service.
+
+## System architecture
 
 ```text
-LedgerLine/
-├── ledgerline-frontend/
-│   └── src/
-│       ├── assets/
-│       ├── components/
-│       ├── context/
-│       ├── pages/
-│       ├── services/
-│       └── styles/
-├── ledgerline-backend/
-│   └── src/
-│       ├── main/java/com/ledgerline/
-│       │   ├── config/
-│       │   ├── controller/
-│       │   ├── dto/
-│       │   ├── entity/
-│       │   ├── enums/
-│       │   ├── exception/
-│       │   ├── repository/
-│       │   ├── security/
-│       │   └── service/
-│       └── test/java/com/ledgerline/
-└── documentation/
-    ├── database/
-    │   ├── README.md
-    │   ├── schema.sql
-    │   ├── money-movement-migration.sql
-    │   └── idempotency-outcomes-migration.sql
-    ├── authentication/
-    │   ├── README.md
-    │   └── postman-collection.json
-    └── accounts/
-        ├── README.md
-        └── postman-collection.json
+Browser (React/Vite or static Nginx)
+           |
+           | HTTPS in production; same-origin /api proxy in Compose
+           v
+Express API (JWT auth, role checks, validation)
+           |
+           | Mongoose sessions / multi-document transactions
+           v
+MongoDB replica set
+  users | accounts | transactions | ledger entries
+  permissions | idempotency records | audit logs
 ```
 
-## Folder guide
+In the Compose evaluation stack, Nginx serves the frontend and proxies `/api` and `/health` to Express. The local MongoDB container is a single-node replica set to enable transactions during evaluation; it is not a production database topology.
 
-### Frontend
+## Database structure
 
-- `ledgerline-frontend/` — React application and its frontend-specific configuration.
-- `src/components/` — Reusable interface elements shared across screens.
-- `src/pages/` — Page-level views and route targets.
-- `src/services/` — API clients and frontend integration with backend endpoints.
-- `src/context/` — Shared React context for application-wide state.
-- `src/assets/` — Images, icons, fonts, and other static assets.
-- `src/styles/` — Global styles, design tokens, and shared styling.
+| Collection | Purpose |
+|---|---|
+| `users` | Unique login identity, bcrypt hash, role, enabled state, token version. |
+| `accounts` | Owner, account number/type/currency, Decimal128 balance, status, optimistic version. External clearing accounts have no owner and may have signed balances. |
+| `accountpermissions` | Account-scoped `ACCOUNT_ADMIN`, `TRANSACT`, and `VIEW` permissions. |
+| `transactions` | Initiator, source/destination, type/status, amount/currency, description, posting timestamp. |
+| `ledgerentries` | Immutable debit/credit lines linked to transaction and account. |
+| `idempotencyrecords` | Unique `(userId, idempotencyKey)`, normalized request hash, outcome, and transaction reference. |
+| `auditlogs` | Actor, action, entity reference, structured details, timestamp. |
 
-### Backend
+A successful money movement writes the associated account balance(s), one posted transaction, equal debit and credit ledger entries, and the idempotency result atomically. See [database design](./documentation/database/README.md) for invariants and residual risks.
 
-- `ledgerline-backend/` — Spring Boot service and its Maven configuration.
-- `src/main/java/com/ledgerline/config/` — Application and framework configuration.
-- `src/main/java/com/ledgerline/controller/` — HTTP endpoints and request handling.
-- `src/main/java/com/ledgerline/service/` — Business rules and application workflows.
-- `src/main/java/com/ledgerline/repository/` — Spring Data persistence interfaces.
-- `src/main/java/com/ledgerline/entity/` — JPA entities mapped to database records.
-- `src/main/java/com/ledgerline/dto/` — Data transfer objects for API input and output.
-- `src/main/java/com/ledgerline/security/` — Authentication, authorization, and JWT components.
-- `src/main/java/com/ledgerline/exception/` — Application exceptions and API error handling.
-- `src/main/java/com/ledgerline/enums/` — Shared backend enumerated domain values.
-- `src/test/java/com/ledgerline/` — Backend unit and integration tests, including real-MySQL concurrency coverage.
+## Installation
 
-### Documentation
+### Requirements
 
-- `documentation/` — Project design notes, API references, and supporting technical documentation.
-- `documentation/database/` — MySQL schema, upgrade migrations, database design, and concurrency test instructions.
-- `documentation/authentication/` — Authentication API setup, role model, and a Postman collection for manual testing.
-- `documentation/accounts/` — Account API behavior, role permissions, and a Postman collection for endpoint testing.
+- Node.js 20.19+ or 22.12+ and npm (Node 22 LTS is recommended).
+- Docker Desktop with Docker Compose for the one-command evaluation setup; or MongoDB configured as a replica set.
+- A private JWT signing secret of at least 32 characters.
 
-## Run the backend
+### Local evaluation stack
 
-Requirements: Java 17 or newer, Maven 3.6.3 or newer, and MySQL running on `localhost:3306`. Apply `documentation/database/schema.sql` for a fresh database. For an existing database, apply the applicable money-movement and idempotency outcome migrations before using those modules.
+From PowerShell at the repository root:
 
-From the VS Code terminal, open the backend directory and set credentials for the current PowerShell session:
+```powershell
+Copy-Item .env.example .env
+node -e "console.log(require('node:crypto').randomBytes(48).toString('base64url'))"
+```
+
+Paste the generated value into the ignored `.env` as `JWT_SECRET`, then:
+
+```powershell
+docker compose up --build -d
+docker compose ps
+```
+
+The local frontend is at `http://localhost:5173`, the API at `http://localhost:8080`, and health at `http://localhost:8080/health`. MongoDB is not published to the host. This Compose configuration has no database authentication and is for local evaluation only.
+
+### Run without Docker
+
+Configure `MONGO_URI` to a reachable MongoDB replica set, plus `JWT_SECRET`, `PORT` (optional), and `FRONTEND_ORIGIN`. Then in separate PowerShell terminals:
 
 ```powershell
 cd .\ledgerline-backend
-$env:DB_USERNAME = "your_mysql_username"
-$env:DB_PASSWORD = "your_mysql_password"
-$jwtBytes = New-Object byte[] 32
-[Security.Cryptography.RandomNumberGenerator]::Create().GetBytes($jwtBytes)
-$env:JWT_SECRET = [Convert]::ToBase64String($jwtBytes)
-mvn spring-boot:run
+npm ci
+npm run start
 ```
-
-The service listens on port `8080`. `SPRING_PROFILES_ACTIVE` defaults to `dev`, where Hibernate uses `ddl-auto=update`; use this only for local development, not production. Set `DB_URL`, `SERVER_PORT`, `SPRING_PROFILES_ACTIVE`, `JWT_EXPIRATION_MS`, or `CLEARING_ACCOUNT_NUMBER` to override defaults. The default clearing account is `LL-CLEARING-USD`; apply the money-movement migration on an existing database. Keep JWT signing keys private; changing the key invalidates issued tokens.
-
-## Run the frontend
-
-Requirements: Node.js 20.19+ or 22.12+. From a VS Code terminal:
 
 ```powershell
 cd .\ledgerline-frontend
-npm install
+npm ci
 npm run dev
 ```
 
-Open the local URL printed by Vite (normally `http://localhost:5173`). The frontend connects to the API at `http://localhost:8080` by default; set `VITE_API_BASE_URL` before `npm run dev` to use another backend URL. The backend allows the local Vite origin; set `FRONTEND_ORIGIN` to configure the primary allowed origin.
+For production, use an authenticated TLS MongoDB replica set and inject secrets through the platform's secret manager. Do not copy the unauthenticated evaluation database configuration into production. See [deployment guidance](./DEPLOYMENT.md).
 
-The client supports sign-in/registration, account and statement views, role-specific admin/auditor dashboards, and account-holder deposits, withdrawals, and transfers. Money movement uses a persistent idempotency key for retries of the same request body. Financial data comes from the API only; the client never creates transaction or balance data locally.
+## Seeded demo credentials
 
-## Current status
+Use the local-only demo seeder to create:
 
-The backend has its Maven/Spring Boot setup, MySQL configuration, application entry point, request-validation error responses, JPA entities, registration/login/JWT/logout, role-based security, account management APIs, transactional deposits and withdrawals, atomic internal transfers, idempotent money movement, and read-only account ledger statements. Existing databases must apply the [idempotency outcome migration](./documentation/database/idempotency-outcomes-migration.sql). Run the MySQL concurrency integration tests against a dedicated test database as described in the [database guide](./documentation/database/README.md). The React frontend includes role-aware account, statement, money-movement, and audit pages connected to the API. See [authentication setup](./documentation/authentication/README.md), [account API guide](./documentation/accounts/README.md), and [database design](./documentation/database/README.md).
+| Role | Username |
+|---|---|
+| Administrator | `demo-admin` |
+| Account holder | `demo-holder` |
+| Auditor | `demo-auditor` |
+
+The seeder generates unique, high-entropy passwords and stores them only in the ignored `ledgerline-backend/.demo-credentials.json` file (or a private Compose volume). The account holder receives two USD accounts; the primary opens with a balanced, ledger-recorded USD 1,000 deposit. Read the generated file locally to sign in. Passwords are intentionally not included in this repository. Demo seeding requires `ALLOW_DEMO_SEED=true` and refuses to run with `NODE_ENV=production`.
+
+Instructions for seeding and the timed demonstration are in [DEMO.md](./DEMO.md).
+
+## Execution and tests
+
+With Docker Compose:
+
+```powershell
+docker compose up --build -d
+docker compose exec -e NODE_ENV=development -e ALLOW_DEMO_SEED=true backend npm run demo:seed
+docker compose exec backend npm run demo:verify
+```
+
+Without Docker, from `ledgerline-backend` set `MONGO_URI`, `JWT_SECRET`, `NODE_ENV=development`, and `ALLOW_DEMO_SEED=true` before running `npm run demo:seed`; start the API and UI as above.
+
+Run automated tests:
+
+```powershell
+cd .\ledgerline-backend
+npm ci
+npm test
+```
+
+Tests start a real ephemeral MongoDB replica set and exercise authenticated HTTP requests, concurrent money movement, persisted balances, ledger rows, idempotency, authorization, and rollback. Initial test setup may download the MongoDB test binary.
+
+## API documentation
+
+The complete route reference, permissions, request bodies, response shapes, error statuses, and financial effects are in [API.md](./API.md). API paths include:
+
+- Authentication: `/api/auth/*`
+- Accounts and statements: `/api/accounts/*`
+- Money movement: `/api/accounts/{accountId}/deposits`, `/withdrawals`, and `/api/transfers`
+- Admin governance: `/api/admin/*`
+- Auditor read-only views: `/api/auditor/*`
+- Transaction history: `/api/transactions`
+- Health: `/health`
+
+## Deployment and submission status
+
+Dockerfiles and `compose.yaml` prepare a reproducible **local evaluation** stack. No public deployment URL is configured or claimed. A clean GitHub-clone verification has not been completed in this environment; Docker is unavailable here and the worktree contains uncommitted changes. Verify the exact submitted commit from a fresh clone before presenting it as reproducible.
+
+Before publishing, review `git status`, run `npm audit` in both packages, ensure `.env` and generated demo credentials remain ignored, and publish only after verifying a clean checkout. See [THREATS.md](./THREATS.md) for mitigations and accepted risks and [PROMPTS.md](./PROMPTS.md) for the dated AI-development log and commit-link status.
