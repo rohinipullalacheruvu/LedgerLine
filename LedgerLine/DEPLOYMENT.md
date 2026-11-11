@@ -22,6 +22,20 @@ Use independently managed services:
 5. **Bootstrap:** provision an administrator through `npm run create-admin` using temporary, private environment values. Do not use the demo seeder in production. Provision auditors through a controlled operator workflow; no public role escalation endpoint exists.
 6. **Operations:** use separate staging/production databases, rotate JWT/database credentials, monitor failed health checks and transaction conflicts, review audit logs, rate-limit authentication and money endpoints at ingress, and test restore and key-rotation procedures.
 
+## Deploying on Render
+
+The repository-root `render.yaml` defines the API as a Docker web service and the Vite frontend as a static site. To deploy:
+
+1. Push the repository to GitHub and connect it to Render.
+2. In Render, choose **New > Blueprint** and select this repository. Review the two services before deploying.
+3. Before deploying, provide the prompted `MONGO_URI` and `FRONTEND_ORIGIN` values:
+   - `MONGO_URI` must point to an authenticated, TLS-enabled MongoDB replica set (for example, a MongoDB Atlas cluster). Allow network access from Render as narrowly as your database provider supports. Do not use a standalone Mongo server; money operations require replica-set transactions.
+   - `FRONTEND_ORIGIN` must be the exact HTTPS origin of the `ledgerline-frontend` Render static site, with no trailing slash (for example, `https://your-site.onrender.com`). If Render assigns a different hostname, update this variable on the API service and redeploy it.
+4. Deploy the Blueprint. Render generates `JWT_SECRET`; the frontend receives the API hostname from the API service. Check `https://<api-host>/health` and confirm it returns HTTP 200 with `"database": "connected"`.
+5. Create the initial administrator with the backend's `npm run create-admin` script, supplying `MONGO_URI`, `ADMIN_USERNAME`, `ADMIN_EMAIL`, `ADMIN_FULL_NAME`, and `ADMIN_PASSWORD` as temporary private environment values. Run it from a trusted environment with database access; never enable the demo seeder or put credentials in the Blueprint, repository, frontend, or logs.
+
+The Blueprint uses Render's Free web-service plan for the API, which can sleep when idle and is not appropriate for production workloads. Upgrade the API to a paid plan for always-on availability. A static frontend is free. Render does not provide MongoDB in this Blueprint; provision the replica set separately and account for its costs, backups, access controls, and recovery testing.
+
 ## Secret handling
 
 - `.env`, nested `.env` files, and generated demo credentials are ignored by Git.

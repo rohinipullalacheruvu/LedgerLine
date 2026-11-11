@@ -1,0 +1,41 @@
+services:
+  - type: web
+    name: ledgerline-api
+    runtime: docker
+    plan: free
+    region: ohio
+    dockerContext: ./ledgerline-backend
+    dockerfilePath: ./ledgerline-backend/Dockerfile
+    healthCheckPath: /health
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: MONGO_URI
+        sync: false
+      - key: JWT_SECRET
+        generateValue: true
+      - key: JWT_EXPIRATION
+        value: 15m
+      - key: FRONTEND_ORIGIN
+        sync: false
+      - key: CLEARING_ACCOUNT_NUMBER
+        value: LL-CLEARING-USD
+      - key: CLEARING_CURRENCY
+        value: USD
+
+  - type: web
+    name: ledgerline-frontend
+    runtime: static
+    rootDir: ./ledgerline-frontend
+    buildCommand: npm ci && npm run build
+    staticPublishPath: ./dist
+    envVars:
+      - key: VITE_API_BASE_URL
+        fromService:
+          type: web
+          name: ledgerline-api
+          property: host
+    routes:
+      - type: rewrite
+        source: /*
+        destination: /index.html

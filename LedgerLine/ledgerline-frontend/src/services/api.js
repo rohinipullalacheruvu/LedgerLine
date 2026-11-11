@@ -2,9 +2,13 @@ import axios from "axios";
 
 const TOKEN_STORAGE_KEY = "ledgerline.accessToken";
 const PENDING_OPERATIONS_KEY = "ledgerline.pendingOperations";
+const configuredApiBaseUrl = import.meta.env.VITE_API_BASE_URL ?? "";
+const apiBaseUrl = configuredApiBaseUrl && !/^https?:\/\//i.test(configuredApiBaseUrl)
+  ? `https://${configuredApiBaseUrl}`
+  : configuredApiBaseUrl;
 
 export const api = axios.create({
-  baseURL: import.meta.env.VITE_API_BASE_URL ?? "http://localhost:8080",
+  baseURL: apiBaseUrl || "http://localhost:8080",
   headers: { "Content-Type": "application/json" },
   timeout: 20000,
 });
