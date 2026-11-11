@@ -1022,7 +1022,7 @@ function AuthFrame({ mode, onSubmit, values, setValues, error, submitting }) {
             {error && <div className="form-error" role="alert">{error}</div>}
             {!isLogin && <>
               <label className="field"><span>Full name</span><input required maxLength="120" autoComplete="name" value={values.fullName} onChange={(event) => setValues({ ...values, fullName: event.target.value })} /></label>
-              <label className="field"><span>Username</span><input required minLength="3" maxLength="50" pattern="[A-Za-z0-9._-]+" autoComplete="username" value={values.username} onChange={(event) => setValues({ ...values, username: event.target.value })} /></label>
+              <label className="field"><span>Username</span><input required minLength="3" maxLength="50" pattern="[A-Za-z0-9._\-]+" autoComplete="username" value={values.username} onChange={(event) => setValues({ ...values, username: event.target.value })} /></label>
               <label className="field"><span>Email</span><input required type="email" maxLength="254" autoComplete="email" value={values.email} onChange={(event) => setValues({ ...values, email: event.target.value })} /></label>
             </>}
             {isLogin && <label className="field"><span>Email or username</span><input required maxLength="254" autoComplete="username" value={values.usernameOrEmail} onChange={(event) => setValues({ ...values, usernameOrEmail: event.target.value })} /></label>}
